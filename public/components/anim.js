@@ -14,7 +14,10 @@
     wipe: () => [{ clipPath: "inset(0 100% 0 0)" }, { clipPath: "inset(0 0% 0 0)" }],
     drop: () => [{ opacity: 0, transform: "translateY(-230px)" }, { opacity: 1, transform: "translateY(-230px)", offset: .05 }, { opacity: 1, transform: "translateY(0)" }],
   };
-  let running = [];
+  // The first frames of a slide just shown are slow (its first paint, fonts and images, the page still loading): an
+  // animation started at once would jump ahead. They wait at their start until frames come on time again.
+  const STEADY = 3, ON_TIME = 25, MAX_WAIT = 800;
+  let running = [], token = 0;
   function play(root = document) {
     stop();
     root.querySelectorAll("[data-in]").forEach(el => {
@@ -24,10 +27,23 @@
         delay: +el.dataset.in, fill: "both",
         easing: kind === "pop" ? "cubic-bezier(.3,1.5,.5,1)" : kind === "drop" ? "cubic-bezier(.5,0,.7,1.25)" : kind === "draw" || kind === "wipe" ? "ease-in-out" : EASE,
       });
+      a.pause();
       running.push(a);
     });
+    if (!running.length) return;
+    const mine = token, t0 = performance.now();
+    let last = 0, steady = 0;
+    const wait = t => {
+      if (mine !== token) return;
+      steady = last && t - last < ON_TIME ? steady + 1 : 0;
+      last = t;
+      // finish() (print) may already have ended some: play only those still waiting
+      if (steady >= STEADY || performance.now() - t0 > MAX_WAIT) return running.forEach(a => a.playState === "paused" && a.play());
+      requestAnimationFrame(wait);
+    };
+    requestAnimationFrame(wait);
   }
-  function stop() { running.forEach(a => a.cancel()); running = []; }
+  function stop() { token++; running.forEach(a => a.cancel()); running = []; }
   addEventListener("sa:enter", () => play());
   addEventListener("sa:leave", stop);
   window.SAAnim = { play, stop };
